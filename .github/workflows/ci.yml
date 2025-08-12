@@ -1,0 +1,309 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '18'
+  POSTGRES_VERSION: '15'
+  REDIS_VERSION: '7'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: '**/package-lock.json'
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          npm ci
+
+      - name: Install frontend dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      - name: Lint backend code
+        run: |
+          cd backend
+          npm run lint
+
+      - name: Lint frontend code
+        run: |
+          cd frontend
+          npm run lint
+
+      - name: Type check frontend
+        run: |
+          cd frontend
+          npm run type-check
+
+      - name: Run backend tests
+        run: |
+          cd backend
+          npm test -- --coverage --watchAll=false
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test-jwt-secret-for-ci-pipeline-32chars
+
+      - name: Upload test coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: backend/coverage/lcov.info
+          flags: backend
+          name: backend-coverage
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:3000/api
+
+      - name: Run security audit
+        run: |
+          cd backend && npm audit --audit-level=high
+          cd ../frontend && npm audit --audit-level=high
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v2
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+  infrastructure-validation:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.0
+
+      - name: Terraform Format Check
+        run: |
+          cd infrastructure/terraform
+          terraform fmt -check
+
+      - name: Terraform Init
+        run: |
+          cd infrastructure/terraform
+          terraform init -backend=false
+
+      - name: Terraform Validate
+        run: |
+          cd infrastructure/terraform
+          terraform validate
+
+      - name: Terraform Plan (Dry Run)
+        run: |
+          cd infrastructure/terraform
+          terraform plan -var="ssh_public_key=fake-key-for-validation" -out=tfplan
+        if: github.event_name == 'pull_request'
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: false
+          tags: undertheradar/vpn-backend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: false
+          tags: undertheradar/vpn-frontend:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, security-scan, infrastructure-validation, docker-build]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    
+    environment:
+      name: staging
+      url: https://staging.undertheradar.work
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        run: |
+          docker build -t $ECR_REGISTRY/undertheradar-backend:${{ github.sha }} ./backend
+          docker push $ECR_REGISTRY/undertheradar-backend:${{ github.sha }}
+        env:
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+
+      - name: Build and push frontend image
+        run: |
+          docker build -t $ECR_REGISTRY/undertheradar-frontend:${{ github.sha }} ./frontend
+          docker push $ECR_REGISTRY/undertheradar-frontend:${{ github.sha }}
+        env:
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+
+      - name: Deploy to staging
+        run: |
+          # Update ECS service with new image
+          aws ecs update-service --cluster staging-cluster --service backend-service --force-new-deployment
+          aws ecs update-service --cluster staging-cluster --service frontend-service --force-new-deployment
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, security-scan, infrastructure-validation, docker-build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    environment:
+      name: production
+      url: https://undertheradar.work
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        run: |
+          docker build -t $ECR_REGISTRY/undertheradar-backend:${{ github.sha }} ./backend
+          docker tag $ECR_REGISTRY/undertheradar-backend:${{ github.sha }} $ECR_REGISTRY/undertheradar-backend:latest
+          docker push $ECR_REGISTRY/undertheradar-backend:${{ github.sha }}
+          docker push $ECR_REGISTRY/undertheradar-backend:latest
+        env:
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+
+      - name: Build and push frontend image
+        run: |
+          docker build -t $ECR_REGISTRY/undertheradar-frontend:${{ github.sha }} ./frontend
+          docker tag $ECR_REGISTRY/undertheradar-frontend:${{ github.sha }} $ECR_REGISTRY/undertheradar-frontend:latest
+          docker push $ECR_REGISTRY/undertheradar-frontend:${{ github.sha }}
+          docker push $ECR_REGISTRY/undertheradar-frontend:latest
+        env:
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+
+      - name: Deploy to production
+        run: |
+          # Blue-green deployment
+          aws ecs update-service --cluster production-cluster --service backend-service --force-new-deployment
+          aws ecs wait services-stable --cluster production-cluster --services backend-service
+          
+          aws ecs update-service --cluster production-cluster --service frontend-service --force-new-deployment
+          aws ecs wait services-stable --cluster production-cluster --services frontend-service
+
+      - name: Run post-deployment tests
+        run: |
+          # Health checks and smoke tests
+          curl -f https://undertheradar.work/health || exit 1
+          curl -f https://undertheradar.work/api/health || exit 1
+
+      - name: Notify deployment success
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: 'Production deployment successful! 🚀'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        if: success()
+
+      - name: Notify deployment failure
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: 'Production deployment failed! 🚨'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        if: failure()
