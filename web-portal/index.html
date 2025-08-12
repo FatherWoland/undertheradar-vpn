@@ -6,6 +6,7 @@
     <title>UnderTheRadar VPN - Secure, Fast, Private</title>
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://js.stripe.com/v3/"></script>
     <style>
         .gradient-bg {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -77,17 +78,17 @@
                 Experience the internet without boundaries. Military-grade encryption, lightning-fast speeds, and complete privacy.
             </p>
             <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                <button onclick="showRegister()" class="bg-green-600 hover:bg-green-700 px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105">
-                    Start Free Trial <i class="fas fa-arrow-right ml-2"></i>
+                <button onclick="scrollTo('#pricing')" class="bg-green-600 hover:bg-green-700 px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105">
+                    Get Started <i class="fas fa-arrow-right ml-2"></i>
                 </button>
                 <button onclick="scrollTo('#features')" class="border border-white hover:bg-white hover:text-gray-900 px-8 py-4 rounded-lg text-lg font-semibold transition-all">
                     Learn More
                 </button>
             </div>
             <div class="mt-8 flex justify-center items-center space-x-8 text-sm text-gray-300">
-                <span><i class="fas fa-check text-green-400 mr-2"></i>7-day free trial</span>
+                <span><i class="fas fa-check text-green-400 mr-2"></i>Military-grade encryption</span>
                 <span><i class="fas fa-check text-green-400 mr-2"></i>No logs policy</span>
-                <span><i class="fas fa-check text-green-400 mr-2"></i>30-day guarantee</span>
+                <span><i class="fas fa-check text-green-400 mr-2"></i>24/7 support</span>
             </div>
         </div>
     </section>
@@ -153,24 +154,7 @@
                 <h2 class="text-4xl font-bold mb-4">Simple, Transparent Pricing</h2>
                 <p class="text-xl text-gray-400">Choose the plan that fits your needs</p>
             </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-                <!-- Trial -->
-                <div class="glass p-8 rounded-xl border-2 border-transparent">
-                    <div class="text-center">
-                        <h3 class="text-2xl font-bold mb-2">Free Trial</h3>
-                        <div class="text-4xl font-bold mb-4">$0<span class="text-lg text-gray-400">/7 days</span></div>
-                        <ul class="text-left mb-8 space-y-3">
-                            <li><i class="fas fa-check text-green-400 mr-3"></i>1 Device</li>
-                            <li><i class="fas fa-check text-green-400 mr-3"></i>All Servers</li>
-                            <li><i class="fas fa-check text-green-400 mr-3"></i>Unlimited Bandwidth</li>
-                            <li><i class="fas fa-check text-green-400 mr-3"></i>24/7 Support</li>
-                        </ul>
-                        <button onclick="startTrial()" class="w-full bg-gray-700 hover:bg-gray-600 py-3 rounded-lg font-semibold transition-colors">
-                            Start Free Trial
-                        </button>
-                    </div>
-                </div>
-                
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
                 <!-- Basic -->
                 <div class="glass p-8 rounded-xl border-2 border-blue-500 transform scale-105">
                     <div class="text-center">
@@ -185,7 +169,7 @@
                             <li><i class="fas fa-check text-green-400 mr-3"></i>24/7 Support</li>
                         </ul>
                         <button onclick="selectPlan('basic')" class="w-full bg-blue-600 hover:bg-blue-700 py-3 rounded-lg font-semibold transition-colors">
-                            Choose Basic
+                            Subscribe Now
                         </button>
                     </div>
                 </div>
@@ -203,7 +187,7 @@
                             <li><i class="fas fa-check text-green-400 mr-3"></i>Priority Support</li>
                         </ul>
                         <button onclick="selectPlan('premium')" class="w-full bg-purple-600 hover:bg-purple-700 py-3 rounded-lg font-semibold transition-colors">
-                            Choose Premium
+                            Subscribe Now
                         </button>
                     </div>
                 </div>
@@ -280,8 +264,15 @@
             <!-- User Info -->
             <div class="glass p-6 rounded-xl mb-8">
                 <h2 class="text-xl font-bold mb-4">Account Information</h2>
-                <div id="user-info" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div id="user-info" class="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <!-- Will be populated by JavaScript -->
+                </div>
+                <div id="subscription-alert" class="hidden mt-4 p-4 bg-red-600 rounded-lg">
+                    <p class="font-semibold">⚠️ Subscription Required</p>
+                    <p class="text-sm mt-1">Your subscription has expired. Please upgrade to continue using VPN services.</p>
+                    <button onclick="scrollTo('#pricing')" class="mt-2 bg-white text-red-600 px-4 py-2 rounded font-semibold hover:bg-gray-100">
+                        Upgrade Now
+                    </button>
                 </div>
             </div>
 
@@ -325,6 +316,10 @@
         const API_BASE = window.location.origin + '/api';
         let authToken = localStorage.getItem('authToken');
         let currentUser = null;
+
+        // Stripe Configuration
+        const stripe = Stripe('pk_test_your_stripe_public_key_here'); // Replace with your Stripe publishable key
+        let pricingPlans = [];
 
         // Show/Hide Modals
         function showLogin() {
@@ -456,6 +451,9 @@
                 const data = await apiCall('/profile');
                 currentUser = data.user;
                 
+                const statusColor = currentUser.subscriptionStatus === 'active' ? 'text-green-400' : 'text-red-400';
+                const isExpired = currentUser.subscriptionExpiry && new Date(currentUser.subscriptionExpiry) < new Date();
+                
                 document.getElementById('user-info').innerHTML = `
                     <div>
                         <h3 class="font-semibold text-gray-300">Email</h3>
@@ -466,10 +464,22 @@
                         <p class="text-lg capitalize">${currentUser.subscriptionType}</p>
                     </div>
                     <div>
+                        <h3 class="font-semibold text-gray-300">Status</h3>
+                        <p class="text-lg capitalize ${statusColor}">${currentUser.subscriptionStatus}</p>
+                    </div>
+                    <div>
                         <h3 class="font-semibold text-gray-300">Expires</h3>
-                        <p class="text-lg">${new Date(currentUser.subscriptionExpiry).toLocaleDateString()}</p>
+                        <p class="text-lg">${currentUser.subscriptionExpiry ? new Date(currentUser.subscriptionExpiry).toLocaleDateString() : 'Never'}</p>
                     </div>
                 `;
+
+                // Show subscription alert if needed
+                const alertDiv = document.getElementById('subscription-alert');
+                if (currentUser.subscriptionStatus !== 'active' || isExpired) {
+                    alertDiv.classList.remove('hidden');
+                } else {
+                    alertDiv.classList.add('hidden');
+                }
             } catch (error) {
                 console.error('Failed to load profile:', error);
             }
@@ -574,12 +584,69 @@
             }
         }
 
-        function startTrial() {
-            showRegister();
+        async function selectPlan(planType) {
+            if (!authToken) {
+                alert('Please login first to select a plan.');
+                showLogin();
+                return;
+            }
+
+            try {
+                // Find the price ID for the selected plan
+                const planPriceMap = {
+                    'basic': 'price_basic_monthly',  // Replace with your actual Stripe price IDs
+                    'premium': 'price_premium_monthly'
+                };
+
+                const priceId = planPriceMap[planType];
+                if (!priceId) {
+                    alert('Invalid plan selected');
+                    return;
+                }
+
+                // Create checkout session
+                const response = await apiCall('/create-checkout-session', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        priceId: priceId,
+                        successUrl: window.location.origin + '/dashboard?success=true',
+                        cancelUrl: window.location.origin + '/#pricing'
+                    })
+                });
+
+                // Redirect to Stripe Checkout
+                const result = await stripe.redirectToCheckout({
+                    sessionId: response.sessionId
+                });
+
+                if (result.error) {
+                    alert('Payment setup failed: ' + result.error.message);
+                }
+            } catch (error) {
+                alert('Failed to start checkout: ' + error.message);
+            }
         }
 
-        function selectPlan(plan) {
-            alert(`${plan} plan selected! This would integrate with Stripe for payment processing.`);
+        async function loadPricingPlans() {
+            try {
+                const data = await apiCall('/pricing');
+                pricingPlans = data.plans;
+                
+                // Update pricing display if needed
+                updatePricingDisplay();
+            } catch (error) {
+                console.error('Failed to load pricing plans:', error);
+            }
+        }
+
+        function updatePricingDisplay() {
+            // Update pricing section with real Stripe prices
+            if (pricingPlans.length > 0) {
+                pricingPlans.forEach(plan => {
+                    const amount = (plan.amount / 100).toFixed(2);
+                    console.log(`${plan.product.name}: $${amount}/${plan.interval}`);
+                });
+            }
         }
 
         // Initialize app

@@ -258,6 +258,11 @@ VPN_PORT=$VPN_PORT
 SERVER_ENDPOINT=${DOMAIN:-$SERVER_IP}:$VPN_PORT
 ALLOWED_IPS=0.0.0.0/0,::/0
 DNS_SERVERS=1.1.1.1,1.0.0.1
+
+# Stripe Configuration (MUST BE CONFIGURED!)
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+FRONTEND_URL=${DOMAIN:+https://$DOMAIN}${DOMAIN:-http://$SERVER_IP}
 EOF
     
     # Create systemd service

@@ -200,7 +200,8 @@ install_api_server() {
     "express-rate-limit": "^6.10.0",
     "winston": "^3.10.0",
     "dotenv": "^16.3.1",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "stripe": "^14.0.0"
   }
 }
 EOF
@@ -306,6 +307,11 @@ VPN_PORT=$SERVER_PORT
 SERVER_ENDPOINT=${DOMAIN:-$(curl -s ifconfig.me)}:$SERVER_PORT
 ALLOWED_IPS=0.0.0.0/0,::/0
 DNS_SERVERS=1.1.1.1,1.0.0.1
+
+# Stripe Configuration (CONFIGURE THESE!)
+STRIPE_SECRET_KEY=sk_test_your_stripe_secret_key_here
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+FRONTEND_URL=${DOMAIN:+https://$DOMAIN}${DOMAIN:-http://$(curl -s ifconfig.me)}
 EOF
 }
 

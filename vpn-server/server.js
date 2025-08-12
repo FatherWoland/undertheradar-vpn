@@ -12,6 +12,7 @@ const path = require('path');
 const QRCode = require('qrcode');
 const winston = require('winston');
 const { v4: uuidv4 } = require('uuid');
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 require('dotenv').config();
 
 // Logger setup
@@ -66,6 +67,16 @@ const User = sequelize.define('User', {
     },
     subscriptionExpiry: {
         type: DataTypes.DATE
+    },
+    stripeCustomerId: {
+        type: DataTypes.STRING
+    },
+    stripeSubscriptionId: {
+        type: DataTypes.STRING
+    },
+    subscriptionStatus: {
+        type: DataTypes.ENUM('active', 'past_due', 'canceled', 'incomplete', 'trialing'),
+        defaultValue: 'trialing'
     },
     dataUsed: {
         type: DataTypes.BIGINT,
@@ -163,6 +174,27 @@ const requireAdmin = (req, res, next) => {
     if (!req.user.isAdmin) {
         return res.status(403).json({ error: 'Admin access required' });
     }
+    next();
+};
+
+const requireActiveSubscription = (req, res, next) => {
+    const now = new Date();
+    
+    // Admin users bypass subscription check
+    if (req.user.isAdmin) {
+        return next();
+    }
+    
+    // Check if subscription is active and not expired
+    if (req.user.subscriptionStatus !== 'active' || 
+        (req.user.subscriptionExpiry && req.user.subscriptionExpiry < now)) {
+        return res.status(403).json({ 
+            error: 'Active subscription required. Please upgrade your account.',
+            subscriptionStatus: req.user.subscriptionStatus,
+            subscriptionExpiry: req.user.subscriptionExpiry
+        });
+    }
+    
     next();
 };
 
@@ -287,6 +319,14 @@ app.post('/api/register', async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 10);
         
+        // Create Stripe customer
+        const customer = await stripe.customers.create({
+            email: email,
+            metadata: {
+                environment: process.env.NODE_ENV || 'development'
+            }
+        });
+        
         // Set trial expiry to 7 days from now
         const trialExpiry = new Date();
         trialExpiry.setDate(trialExpiry.getDate() + 7);
@@ -295,7 +335,9 @@ app.post('/api/register', async (req, res) => {
             email,
             password: hashedPassword,
             subscriptionType: 'trial',
-            subscriptionExpiry: trialExpiry
+            subscriptionExpiry: trialExpiry,
+            stripeCustomerId: customer.id,
+            subscriptionStatus: 'trialing'
         });
 
         const token = jwt.sign(
@@ -389,7 +431,7 @@ app.get('/api/profile', authenticateToken, async (req, res) => {
 });
 
 // Create VPN client
-app.post('/api/clients', authenticateToken, async (req, res) => {
+app.post('/api/clients', authenticateToken, requireActiveSubscription, async (req, res) => {
     try {
         const { name } = req.body;
 
@@ -447,7 +489,7 @@ app.post('/api/clients', authenticateToken, async (req, res) => {
 });
 
 // Get client configuration
-app.get('/api/clients/:id/config', authenticateToken, async (req, res) => {
+app.get('/api/clients/:id/config', authenticateToken, requireActiveSubscription, async (req, res) => {
     try {
         const client = await VPNClient.findOne({
             where: {
@@ -471,7 +513,7 @@ app.get('/api/clients/:id/config', authenticateToken, async (req, res) => {
 });
 
 // Get client QR code
-app.get('/api/clients/:id/qr', authenticateToken, async (req, res) => {
+app.get('/api/clients/:id/qr', authenticateToken, requireActiveSubscription, async (req, res) => {
     try {
         const client = await VPNClient.findOne({
             where: {
@@ -610,7 +652,8 @@ app.post('/api/admin/create', async (req, res) => {
             password: hashedPassword,
             isAdmin: true,
             subscriptionType: 'premium',
-            subscriptionExpiry: new Date('2099-12-31') // Never expires
+            subscriptionExpiry: new Date('2099-12-31'), // Never expires
+            subscriptionStatus: 'active'
         });
 
         logger.info(`Admin user created: ${email}`);
@@ -626,6 +669,174 @@ app.post('/api/admin/create', async (req, res) => {
     } catch (error) {
         logger.error('Admin creation error:', error);
         res.status(500).json({ error: 'Failed to create admin user' });
+    }
+});
+
+// Stripe Payment Routes
+
+// Create checkout session
+app.post('/api/create-checkout-session', authenticateToken, async (req, res) => {
+    try {
+        const { priceId, successUrl, cancelUrl } = req.body;
+        
+        if (!priceId) {
+            return res.status(400).json({ error: 'Price ID required' });
+        }
+
+        const session = await stripe.checkout.sessions.create({
+            customer: req.user.stripeCustomerId,
+            payment_method_types: ['card'],
+            line_items: [{
+                price: priceId,
+                quantity: 1,
+            }],
+            mode: 'subscription',
+            success_url: successUrl || `${process.env.FRONTEND_URL}/dashboard?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: cancelUrl || `${process.env.FRONTEND_URL}/pricing`,
+            metadata: {
+                userId: req.user.id
+            }
+        });
+
+        res.json({ sessionId: session.id, url: session.url });
+    } catch (error) {
+        logger.error('Checkout session creation error:', error);
+        res.status(500).json({ error: 'Failed to create checkout session' });
+    }
+});
+
+// Get pricing plans
+app.get('/api/pricing', async (req, res) => {
+    try {
+        const prices = await stripe.prices.list({
+            active: true,
+            expand: ['data.product']
+        });
+
+        const plans = prices.data
+            .filter(price => price.recurring)
+            .map(price => ({
+                id: price.id,
+                amount: price.unit_amount,
+                currency: price.currency,
+                interval: price.recurring.interval,
+                product: {
+                    name: price.product.name,
+                    description: price.product.description,
+                    metadata: price.product.metadata
+                }
+            }))
+            .sort((a, b) => a.amount - b.amount);
+
+        res.json({ plans });
+    } catch (error) {
+        logger.error('Pricing fetch error:', error);
+        res.status(500).json({ error: 'Failed to fetch pricing' });
+    }
+});
+
+// Handle Stripe webhooks
+app.post('/api/webhook', express.raw({type: 'application/json'}), async (req, res) => {
+    const sig = req.headers['stripe-signature'];
+    let event;
+
+    try {
+        event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err) {
+        logger.error('Webhook signature verification failed:', err);
+        return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    try {
+        switch (event.type) {
+            case 'checkout.session.completed':
+                const session = event.data.object;
+                const userId = session.metadata.userId;
+                
+                if (session.mode === 'subscription' && userId) {
+                    await User.update({
+                        stripeSubscriptionId: session.subscription,
+                        subscriptionStatus: 'active'
+                    }, {
+                        where: { id: userId }
+                    });
+                    logger.info(`Subscription activated for user: ${userId}`);
+                }
+                break;
+
+            case 'invoice.payment_succeeded':
+                const invoice = event.data.object;
+                if (invoice.subscription) {
+                    const subscription = await stripe.subscriptions.retrieve(invoice.subscription);
+                    const user = await User.findOne({ 
+                        where: { stripeSubscriptionId: subscription.id } 
+                    });
+                    
+                    if (user) {
+                        const expiry = new Date(subscription.current_period_end * 1000);
+                        await user.update({
+                            subscriptionStatus: 'active',
+                            subscriptionExpiry: expiry
+                        });
+                        logger.info(`Subscription renewed for user: ${user.id}`);
+                    }
+                }
+                break;
+
+            case 'invoice.payment_failed':
+                const failedInvoice = event.data.object;
+                if (failedInvoice.subscription) {
+                    const user = await User.findOne({ 
+                        where: { stripeSubscriptionId: failedInvoice.subscription } 
+                    });
+                    if (user) {
+                        await user.update({ subscriptionStatus: 'past_due' });
+                        logger.warn(`Payment failed for user: ${user.id}`);
+                    }
+                }
+                break;
+
+            case 'customer.subscription.deleted':
+                const canceledSub = event.data.object;
+                const user = await User.findOne({ 
+                    where: { stripeSubscriptionId: canceledSub.id } 
+                });
+                if (user) {
+                    await user.update({ 
+                        subscriptionStatus: 'canceled',
+                        subscriptionExpiry: new Date()
+                    });
+                    logger.info(`Subscription canceled for user: ${user.id}`);
+                }
+                break;
+        }
+
+        res.json({received: true});
+    } catch (error) {
+        logger.error('Webhook processing error:', error);
+        res.status(500).json({ error: 'Webhook processing failed' });
+    }
+});
+
+// Cancel subscription
+app.post('/api/cancel-subscription', authenticateToken, async (req, res) => {
+    try {
+        if (!req.user.stripeSubscriptionId) {
+            return res.status(400).json({ error: 'No active subscription found' });
+        }
+
+        const subscription = await stripe.subscriptions.del(req.user.stripeSubscriptionId);
+        
+        await req.user.update({
+            subscriptionStatus: 'canceled',
+            subscriptionExpiry: new Date(subscription.current_period_end * 1000)
+        });
+
+        logger.info(`Subscription canceled for user: ${req.user.email}`);
+        res.json({ message: 'Subscription canceled successfully' });
+    } catch (error) {
+        logger.error('Subscription cancellation error:', error);
+        res.status(500).json({ error: 'Failed to cancel subscription' });
     }
 });
 

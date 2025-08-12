@@ -40,6 +40,7 @@ The script will:
 - **RAM**: 1GB (2GB recommended)
 - **Storage**: 10GB SSD
 - **Network**: 100 Mbps connection
+- **⚠️ IMPORTANT**: Stripe account for payments (required for users to access VPN)
 
 ### **Recommended Providers:**
 - **DigitalOcean**: $5/month droplet
@@ -132,12 +133,27 @@ curl -X POST http://your-server-ip:3001/api/admin/create \
   -d '{"email":"admin@yourdomain.com","password":"your-secure-password"}'
 ```
 
-### **3. Test VPN Connection**
+### **3. Configure Stripe Payments** ⚠️ **CRITICAL**
+**Your VPN service requires payment to function. Users cannot create devices without an active subscription.**
+
+```bash
+# Edit environment file
+sudo nano /opt/undertheradar-vpn/.env
+
+# Configure these Stripe settings:
+STRIPE_SECRET_KEY=sk_test_your_actual_key
+STRIPE_WEBHOOK_SECRET=whsec_your_actual_secret
+```
+
+**📖 Full Stripe setup guide:** [STRIPE_SETUP.md](STRIPE_SETUP.md)
+
+### **4. Test VPN Connection**
 1. Visit your web interface
 2. Login with admin credentials
 3. Create a test user account
-4. Add a device and download config
-5. Test connection with WireGuard client
+4. **Subscribe to a plan** (payment required)
+5. Add a device and download config
+6. Test connection with WireGuard client
 
 ---
 
