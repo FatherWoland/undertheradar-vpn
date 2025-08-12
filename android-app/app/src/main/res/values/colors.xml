@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Brand Colors -->
+    <color name="primary_blue">#667eea</color>
+    <color name="primary_purple">#764ba2</color>
+    
+    <!-- Material Design Colors -->
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    
+    <!-- Custom Colors -->
+    <color name="green_500">#22c55e</color>
+    <color name="red_500">#ef4444</color>
+    <color name="orange_500">#f97316</color>
+    <color name="blue_500">#3b82f6</color>
+    <color name="gray_100">#f3f4f6</color>
+    <color name="gray_200">#e5e7eb</color>
+    <color name="gray_300">#d1d5db</color>
+    <color name="gray_500">#6b7280</color>
+    <color name="gray_700">#374151</color>
+    <color name="gray_800">#1f2937</color>
+    <color name="gray_900">#111827</color>
+    
+    <!-- Status Colors -->
+    <color name="status_connected">#22c55e</color>
+    <color name="status_disconnected">#6b7280</color>
+    <color name="status_connecting">#f97316</color>
+    <color name="status_error">#ef4444</color>
+    
+    <!-- Background Colors -->
+    <color name="background_light">#ffffff</color>
+    <color name="background_dark">#1f2937</color>
+    <color name="surface_light">#f9fafb</color>
+    <color name="surface_dark">#374151</color>
+    
+    <!-- Gradient Colors -->
+    <color name="gradient_start">#667eea</color>
+    <color name="gradient_end">#764ba2</color>
+</resources>
