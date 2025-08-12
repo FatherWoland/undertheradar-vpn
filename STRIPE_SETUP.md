@@ -29,14 +29,14 @@ STRIPE_SECRET_KEY=sk_live_your_actual_stripe_live_key
 ### **3. Create Products & Prices**
 In Stripe Dashboard → **Products**:
 
-**Basic Plan:**
-- Product Name: "Basic VPN"
-- Price: $5/month
+**Essential Plan:**
+- Product Name: "Essential VPN"
+- Price: $2/month
 - Copy the Price ID: `price_xxxxxxxxx`
 
-**Premium Plan:**
-- Product Name: "Premium VPN" 
-- Price: $10/month
+**Pro Plan:**
+- Product Name: "Pro VPN" 
+- Price: $5/month
 - Copy the Price ID: `price_xxxxxxxxx`
 
 ### **4. Update Web Portal**
@@ -45,8 +45,8 @@ Edit `/var/www/undertheradar-vpn/index.html`:
 ```javascript
 // Replace these price IDs with your actual Stripe price IDs
 const planPriceMap = {
-    'basic': 'price_1234567890abcdef',    // Your Basic plan price ID
-    'premium': 'price_0987654321fedcba'   // Your Premium plan price ID
+    'essential': 'price_1234567890abcdef',    // Your Essential plan ($2/month)
+    'pro': 'price_0987654321fedcba'           // Your Pro plan ($5/month)
 };
 
 // Replace with your Stripe publishable key
@@ -70,32 +70,66 @@ sudo systemctl restart undertheradar-vpn
 
 ---
 
-## 🚀 **Pricing Strategy**
+## 🚀 **Ultra-Competitive Pricing Strategy**
 
-### **Recommended Pricing:**
-- **Basic Plan**: $5-8/month (3 devices)
-- **Premium Plan**: $10-15/month (10 devices)
-- **Annual Discount**: 20% off (implement later)
+### **Your Pricing:**
+- **Essential**: $2/month (3 devices) - **84% cheaper than competitors!**
+- **Pro**: $5/month (10 devices) - **60% cheaper than competitors!**
+- **Annual Discount**: 20% off → **$1.60/month Essential!**
 
 ### **Competitor Analysis:**
 - ExpressVPN: $12.95/month
 - NordVPN: $11.95/month  
 - Surfshark: $12.95/month
-- **Your Advantage**: Better prices + faster WireGuard protocol
+- **Your Advantage**: 
+  - 🎯 **84% cheaper pricing**
+  - ⚡ **Faster WireGuard protocol**
+  - 🛡️ **Same security level**
+  - 💡 **Better value proposition**
 
 ---
 
-## 💰 **Revenue Projections**
+## 💰 **Volume-Based Revenue Model**
 
-### **Conservative Estimates:**
-- **100 customers**: $500-1,000/month
-- **500 customers**: $2,500-5,000/month  
-- **1,000 customers**: $5,000-10,000/month
+### **Economics:**
+- **Server cost**: ~$20/month
+- **Break-even**: 10 Essential customers OR 4 Pro customers per server
+- **Profit margin**: Thin but scalable with volume
 
-### **Growth Strategy:**
-1. **Month 1-3**: Focus on reliability & support
-2. **Month 4-6**: Add more server locations
-3. **Month 7-12**: Marketing & feature expansion
+### **Revenue Projections:**
+- **500 customers**: $1,000-2,500/month (profitable at scale)
+- **2,000 customers**: $4,000-10,000/month
+- **5,000 customers**: $10,000-25,000/month
+
+### **Market Disruption Strategy:**
+1. **Phase 1**: Price shock - undercut competitors by 80%+
+2. **Phase 2**: Scale rapidly to 2000+ customers 
+3. **Phase 3**: Add server locations & premium features
+4. **Phase 4**: Maintain pricing advantage while scaling
+
+### **Marketing Angle:**
+*"Why pay $13/month when you can get the same security for $2/month?"*
+
+---
+
+## ⚡ **Optimizing for Ultra-Low Pricing**
+
+### **Cost Management:**
+- **Multi-tenant servers**: 20-50 customers per server
+- **Geographic clustering**: Start with 2-3 locations
+- **Bandwidth monitoring**: Block heavy abusers (>500GB/month)
+- **Automated scaling**: Add servers when 80% capacity reached
+
+### **Volume Requirements:**
+- **Minimum viable scale**: 500+ customers for profitability
+- **Target scale**: 2000+ customers for sustainable business
+- **Growth rate needed**: 100+ new customers/month
+
+### **Risk Mitigation:**
+- **Usage limits**: Fair usage policy for bandwidth
+- **Geographic restrictions**: Start with US/EU only
+- **Payment validation**: Prevent fraud with Stripe Radar
+- **Server optimization**: Use spot instances when possible
 
 ---
 

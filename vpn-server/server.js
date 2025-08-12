@@ -62,7 +62,7 @@ const User = sequelize.define('User', {
         defaultValue: true
     },
     subscriptionType: {
-        type: DataTypes.ENUM('trial', 'basic', 'premium'),
+        type: DataTypes.ENUM('trial', 'essential', 'pro'),
         defaultValue: 'trial'
     },
     subscriptionExpiry: {
@@ -446,8 +446,8 @@ app.post('/api/clients', authenticateToken, requireActiveSubscription, async (re
 
         const limits = {
             trial: 1,
-            basic: 3,
-            premium: 10
+            essential: 3,
+            pro: 10
         };
 
         if (clientCount >= limits[req.user.subscriptionType]) {
@@ -651,7 +651,7 @@ app.post('/api/admin/create', async (req, res) => {
             email,
             password: hashedPassword,
             isAdmin: true,
-            subscriptionType: 'premium',
+            subscriptionType: 'pro',
             subscriptionExpiry: new Date('2099-12-31'), // Never expires
             subscriptionStatus: 'active'
         });
